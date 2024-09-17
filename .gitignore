@@ -1,0 +1,324 @@
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const scoreElement = document.getElementById('score');
+const roundElement = document.getElementById('round');
+const timerElement = document.getElementById('timer');
+const finalScoreElement = document.getElementById('finalScore');
+const startButton = document.getElementById('startButton');
+const restartButton = document.getElementById('restartButton');
+const startScreen = document.getElementById('startScreen');
+const gameScreen = document.getElementById('gameScreen');
+const gameOverScreen = document.getElementById('gameOverScreen');
+
+let score = 0;
+let currentRound = 1;
+let timeLeft = 60;
+let difficultyMultiplier = 1;
+const maxRounds = 5;
+
+const player = {
+    x: canvas.width / 2,
+    y: canvas.height - 30,
+    width: 40,
+    height: 40,
+    color: 'blue',
+    speed: 5
+};
+
+let blocks = [];
+let bins = [];
+let expressions = [];
+let heldBlock = null;
+let powerUps = [];
+
+const sounds = {
+    correct: new Audio('correct.mp3'),
+    incorrect: new Audio('incorrect.mp3'),
+    pickup: new Audio('pickup.mp3'),
+    drop: new Audio('drop.mp3')
+};
+
+function setDifficulty() {
+    const difficulty = document.querySelector('input[name="difficulty"]:checked').value;
+    switch(difficulty) {
+        case 'easy':
+            difficultyMultiplier = 1;
+            break;
+        case 'medium':
+            difficultyMultiplier = 1.5;
+            break;
+        case 'hard':
+            difficultyMultiplier = 2;
+            break;
+    }
+}
+
+function generateExpressions() {
+    expressions = [];
+    for (let i = 0; i < 4; i++) {
+        const a = Math.floor(Math.random() * 10 * difficultyMultiplier) + 1;
+        const b = Math.floor(Math.random() * 10 * difficultyMultiplier) + 1;
+        expressions.push({ equation: `${a} * x = ${a * b}`, answer: b });
+    }
+}
+
+function createBlocks() {
+    blocks = expressions.map((exp, index) => ({
+        x: 50 + index * 100,
+        y: 50,
+        width: 60,
+        height: 60,
+        color: `hsl(${Math.random() * 360}, 100%, 50%)`,
+        value: exp.answer
+    }));
+}
+
+function createBins() {
+    bins = expressions.map((exp, index) => ({
+        x: 100 + index * 150,
+        y: canvas.height - 100,
+        width: 100,
+        height: 80,
+        color: 'lightgray',
+        equation: exp.equation
+    }));
+}
+
+function createPowerUp() {
+    if (Math.random() < 0.1) {  // 10% chance to spawn a power-up
+        powerUps.push({
+            x: Math.random() * (canvas.width - 30),
+            y: Math.random() * (canvas.height - 200) + 100,
+            width: 30,
+            height: 30,
+            color: 'gold',
+            type: Math.random() < 0.5 ? 'timeBonus' : 'scoreMultiplier'
+        });
+    }
+}
+
+function drawPlayer() {
+    ctx.fillStyle = player.color;
+    ctx.beginPath();
+    ctx.moveTo(player.x, player.y + player.height);
+    ctx.lineTo(player.x + player.width / 2, player.y);
+    ctx.lineTo(player.x + player.width, player.y + player.height);
+    ctx.closePath();
+    ctx.fill();
+}
+
+function drawBlocks() {
+    blocks.forEach(block => {
+        if (block !== heldBlock) {
+            ctx.fillStyle = block.color;
+            ctx.fillRect(block.x, block.y, block.width, block.height);
+            ctx.fillStyle = 'white';
+            ctx.font = '20px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(block.value, block.x + block.width / 2, block.y + block.height / 2);
+        }
+    });
+}
+
+function drawBins() {
+    bins.forEach(bin => {
+        ctx.fillStyle = bin.color;
+        ctx.fillRect(bin.x, bin.y, bin.width, bin.height);
+        ctx.fillStyle = 'black';
+        ctx.font = '14px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(bin.equation, bin.x + bin.width / 2, bin.y + bin.height / 2);
+    });
+}
+
+function drawHeldBlock() {
+    if (heldBlock) {
+        ctx.fillStyle = heldBlock.color;
+        ctx.fillRect(player.x, player.y - 40, heldBlock.width, heldBlock.height);
+        ctx.fillStyle = 'white';
+        ctx.font = '20px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(heldBlock.value, player.x + heldBlock.width / 2, player.y - 40 + heldBlock.height / 2);
+    }
+}
+
+function drawPowerUps() {
+    powerUps.forEach(powerUp => {
+        ctx.fillStyle = powerUp.color;
+        ctx.beginPath();
+        ctx.moveTo(powerUp.x + powerUp.width / 2, powerUp.y);
+        ctx.lineTo(powerUp.x + powerUp.width, powerUp.y + powerUp.height / 2);
+        ctx.lineTo(powerUp.x + powerUp.width / 2, powerUp.y + powerUp.height);
+        ctx.lineTo(powerUp.x, powerUp.y + powerUp.height / 2);
+        ctx.closePath();
+        ctx.fill();
+    });
+}
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawPlayer();
+    drawBlocks();
+    drawBins();
+    drawHeldBlock();
+    drawPowerUps();
+}
+
+function movePlayer(dx) {
+    player.x += dx;
+    player.x = Math.max(0, Math.min(canvas.width - player.width, player.x));
+}
+
+function pickupBlock() {
+    if (heldBlock) return;
+    for (let block of blocks) {
+        if (
+            player.x < block.x + block.width &&
+            player.x + player.width > block.x &&
+            player.y < block.y + block.height &&
+            player.y + player.height > block.y
+        ) {
+            heldBlock = block;
+            blocks = blocks.filter(b => b !== block);
+            sounds.pickup.play();
+            break;
+        }
+    }
+}
+
+function dropBlock() {
+    if (!heldBlock) return;
+    for (let bin of bins) {
+        if (
+            player.x < bin.x + bin.width &&
+            player.x + player.width > bin.x
+        ) {
+            const correctAnswer = parseInt(bin.equation.split('=')[1].trim());
+            if (heldBlock.value === correctAnswer) {
+                score += 10 * difficultyMultiplier;
+                scoreElement.textContent = score;
+                showFeedback('Correct!', 'green');
+                sounds.correct.play();
+            } else {
+                showFeedback('Incorrect!', 'red');
+                sounds.incorrect.play();
+            }
+            heldBlock = null;
+            sounds.drop.play();
+            if (blocks.length === 0) {
+                nextRound();
+            }
+            return;
+        }
+    }
+    blocks.push(heldBlock);
+    heldBlock = null;
+    sounds.drop.play();
+}
+
+function checkPowerUpCollision() {
+    powerUps = powerUps.filter(powerUp => {
+        if (
+            player.x < powerUp.x + powerUp.width &&
+            player.x + player.width > powerUp.x &&
+            player.y < powerUp.y + powerUp.height &&
+            player.y + player.height > powerUp.y
+        ) {
+            if (powerUp.type === 'timeBonus') {
+                timeLeft += 10;
+            } else {
+                score += 20 * difficultyMultiplier;
+            }
+            showFeedback('Power-up!', 'gold');
+            return false;
+        }
+        return true;
+    });
+}
+
+function showFeedback(message, color) {
+    ctx.fillStyle = color;
+    ctx.font = '30px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(message, canvas.width / 2, canvas.height / 2);
+}
+
+function nextRound() {
+    currentRound++;
+    if (currentRound > maxRounds) {
+        endGame();
+    } else {
+        roundElement.textContent = currentRound;
+        startRound();
+    }
+}
+
+function startRound() {
+    generateExpressions();
+    createBlocks();
+    createBins();
+    createPowerUp();
+    timeLeft = 60;
+}
+
+function endGame() {
+    gameScreen.style.display = 'none';
+    gameOverScreen.style.display = 'flex';
+    finalScoreElement.textContent = score;
+}
+
+function updateTimer() {
+    if (timeLeft > 0) {
+        timeLeft--;
+        timerElement.textContent = timeLeft;
+    } else {
+        endGame();
+    }
+}
+
+function startGame() {
+    startScreen.style.display = 'none';
+    gameScreen.style.display = 'block';
+    setDifficulty();
+    score = 0;
+    currentRound = 1;
+    scoreElement.textContent = score;
+    roundElement.textContent = currentRound;
+    startRound();
+    gameLoop();
+    setInterval(updateTimer, 1000);
+}
+
+document.addEventListener('keydown', (e) => {
+    switch(e.key) {
+        case 'ArrowLeft':
+            movePlayer(-player.speed);
+            break;
+        case 'ArrowRight':
+            movePlayer(player.speed);
+            break;
+        case ' ':
+            if (heldBlock) {
+                dropBlock();
+            } else {
+                pickupBlock();
+            }
+            break;
+    }
+});
+
+function gameLoop() {
+    draw();
+    checkPowerUpCollision();
+    requestAnimationFrame(gameLoop);
+}
+
+startButton.addEventListener('click', startGame);
+restartButton.addEventListener('click', () => {
+    gameOverScreen.style.display = 'none';
+    startGame();
+});
